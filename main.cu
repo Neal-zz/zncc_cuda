@@ -117,6 +117,28 @@ std::vector<unsigned char> normalize(std::vector<unsigned> in, const unsigned wi
 	return result;
 }
 
+std::vector<unsigned char> showDis(const std::vector<unsigned>& in,
+	const std::vector<unsigned char>& rightPixels, const unsigned width, const unsigned height) {
+	std::vector<unsigned char> result(width * height * 4);
+
+	// draw right images on the result.
+	int mapIndex = 0;
+	for (int i = 0; i < width * height * 4; i += 4, mapIndex++) {
+		unsigned posX = mapIndex;
+		if (floor(mapIndex / width) == floor((mapIndex - in[mapIndex]) / width)) {
+			posX -= in[mapIndex];
+		}
+		
+		result[i] = static_cast<unsigned char>(rightPixels[posX * 4]);
+		result[i + 1] = static_cast<unsigned char>(rightPixels[posX * 4 + 1]);
+		result[i + 2] = static_cast<unsigned char>(rightPixels[posX * 4 + 2]);
+		result[i + 3] = 255;
+	}
+
+	return result;
+
+}
+
 
 void CudaCall(const cudaError_t& status) {
 	if (status != cudaSuccess) {
@@ -124,11 +146,11 @@ void CudaCall(const cudaError_t& status) {
 	}
 }
 
-constexpr int scaleFactor = 2;
+constexpr int scaleFactor = 1;
 
 constexpr int minDisparity = 0;
-constexpr int maxDisparity = 64;
-constexpr int windowWidth = 11;
+constexpr int maxDisparity = 100;
+constexpr int windowWidth = 11;  // should be odd number
 constexpr int windowHeight = 11;
 
 constexpr int crossCheckingThreshold = 2;
@@ -221,8 +243,8 @@ int main() {
 	// Disparity Left over Right
 	std::cout << "Converting Left Disparity Map...";
 	CudaCall(cudaEventRecord(start));
-
-	Zncc<<<blocks, threads>>>(d_grayL, d_grayR, d_dispLR, width, height, minDisparity, maxDisparity, windowWidth, windowHeight);
+	//std::cout << height << " " << width << " " << width * (windowHeight + 1) / 2 << std::endl;
+	Zncc_int<<<height, width>>>(d_grayL, d_grayR, d_dispLR, width, height, minDisparity, maxDisparity, windowWidth, windowHeight);
 
 	CudaCall(cudaEventRecord(stop));
 	CudaCall(cudaEventSynchronize(stop));
@@ -235,8 +257,8 @@ int main() {
 	// Disparity Right over Left
 	std::cout << "Converting Right Disparity Map...";
 	CudaCall(cudaEventRecord(start));
-
-	Zncc<<<blocks, threads>>>(d_grayR, d_grayL, d_dispRL, width, height, -maxDisparity, -minDisparity, windowWidth, windowHeight);
+	
+	Zncc_int<<<height, width>>>(d_grayR, d_grayL, d_dispRL, width, height, -maxDisparity, -minDisparity, windowWidth, windowHeight);
 
 	CudaCall(cudaEventRecord(stop));
 	CudaCall(cudaEventSynchronize(stop));
@@ -273,11 +295,12 @@ int main() {
 
 	CudaCall(cudaPeekAtLastError());
 	CudaCall(cudaDeviceSynchronize());
-
+	
 	// Copy data from device to host
 	CudaCall(cudaMemcpy(&output[0], d_output, sizeof(unsigned)* imSize, cudaMemcpyDeviceToHost));
 
-	lodepng::encode("output.png", normalize(output, width, height), width, height);
+	//lodepng::encode("output.png", normalize(output, width, height), width, height);
+	lodepng::encode("output.png", showDis(output, rightPixels, width, height), width, height);  // draw right image on the left image.
 
 	std::cout << "The program took " << timer.getElapsedTime() << " s" << std::endl;
 
